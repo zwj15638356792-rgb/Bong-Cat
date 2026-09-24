@@ -24,6 +24,16 @@ struct V {
     public static V Lerp(V a,V b,double t){return a+(b-a)*t;}
 }
 
+static class MouseMotion {
+    public static readonly V Center=new V(235,221);
+    public const int HalfWidth=10,HalfHeight=8;
+    public static V Target(Point cursor,Rectangle monitor){
+        double x=monitor.Width>1?(cursor.X-(double)monitor.Left)/(monitor.Width-1):.5;
+        double y=monitor.Height>1?(cursor.Y-(double)monitor.Top)/(monitor.Height-1):.5;
+        return Center+new V((Anatomy.Clamp(x,0,1)-.5)*HalfWidth*2,(Anatomy.Clamp(y,0,1)-.5)*HalfHeight*2);
+    }
+}
+
 class ArmPose {
     public V Shoulder,Elbow,Wrist,Tip,Direction;
     public double Angle,ElbowDepth,WristDepth;
@@ -47,7 +57,9 @@ static class Anatomy {
         double height=Math.Sqrt(Math.Max(0,upper*upper-along*along));
         // Character's right elbow (screen-left mouse arm) opens away from the
         // torso. A mostly downward pole tucks it inward and reverses the bend.
-        V pole=keyboard?new V(.10,.20):new V(-.45,1);double pz=keyboard?-1:-.30;
+        // Keep the elbow outward over the larger pointer range by bending
+        // more in depth, rather than opening the upper arm away from the torso.
+        V pole=keyboard?new V(.10,.20):new V(-.64,1);double pz=-1;
         double dot=pole.X*u.X+pole.Y*u.Y+pz*uz;
         V normal=pole-u*dot;double nz=pz-uz*dot;
         double norm=Math.Sqrt(normal.Length*normal.Length+nz*nz);normal=normal*(1/norm);nz/=norm;
@@ -131,10 +143,10 @@ class Scene : IDisposable {
         for(int i=0;i<10;i++){string key="Num"+i;Targets[key]=TargetFor(key);}
         foreach(string key in new[]{"Alt","AltGr","BackQuote","Backspace","CapsLock","Control","ControlLeft","ControlRight","Delete","Escape","Fn","Meta","Return","Shift","ShiftLeft","ShiftRight","Slash","Space","Tab"})Targets[key]=TargetFor(key);
     }
-    void ImageAt(Graphics g,string name,float x,float y){
+    void ImageAt(Graphics g,string name,float x,float y,float heightScale=1){
         Bitmap image=images[name];
         float resolution=(name=="body"||name=="front-hair"||name.StartsWith("face-"))?image.Width/612f:name=="pad"?image.Width/116f:name.StartsWith("mouse")?image.Width/46f:1;
-        g.DrawImage(image,new RectangleF(x,y,image.Width/resolution,image.Height/resolution),new RectangleF(0,0,image.Width,image.Height),GraphicsUnit.Pixel);
+        g.DrawImage(image,new RectangleF(x,y,image.Width/resolution,image.Height/resolution*heightScale),new RectangleF(0,0,image.Width,image.Height),GraphicsUnit.Pixel);
     }
     static GraphicsPath RoundedRect(RectangleF bounds,float radius){
         var path=new GraphicsPath();float diameter=radius*2;
@@ -236,7 +248,8 @@ class Scene : IDisposable {
             g.SmoothingMode=SmoothingMode.AntiAlias;g.InterpolationMode=InterpolationMode.HighQualityBicubic;g.PixelOffsetMode=PixelOffsetMode.HighQuality;
             ImageAt(g,"body",0,0);
             if(expression!=null&&images.ContainsKey(expression))ImageAt(g,expression,0,0);
-            ImageAt(g,"pad",189,193);DrawKeyboard(g,lit);
+            // Extend the front edge to support the larger mouse travel.
+            ImageAt(g,"pad",189,193,1.2f);DrawKeyboard(g,lit);
             ImageAt(g,left?"mouse-left":right?"mouse-right":"mouse",(float)mouse.X-23,(float)mouse.Y-21);
             Arm(g,Anatomy.Solve(MouseShoulder,mouse+new V(-1,-4),32,31,false),false);
             Arm(g,Anatomy.Solve(KeyShoulder,key,Anatomy.KeyUpper,Anatomy.KeyLower,true),true);
@@ -285,7 +298,7 @@ class Pet : Form {
     string lastKey;
     double lastDown=-10,lastTick;
     readonly TypingExpression expressions;
-    V mouse=new V(235,221),hand;
+    V mouse=MouseMotion.Center,hand;
     V renderedMouse,renderedHand;
     bool hasFrame,renderedLeft,renderedRight;
     string renderedKeys,renderedExpression;
@@ -327,7 +340,7 @@ class Pet : Form {
         FormClosing+=delegate{closing=true;SaveSettings();tray.Visible=false;StopTracking();};
     }
     void BuildMenu(){
-        menu.Items.Add(new ToolStripMenuItem("大肥鱼桌宠 v1.1.0"){Enabled=false});
+        menu.Items.Add(new ToolStripMenuItem("大肥鱼桌宠 v1.1.1"){Enabled=false});
         menu.Items.Add(new ToolStripSeparator());
         visibilityItem=new ToolStripMenuItem("隐藏桌宠",null,delegate{SetPetVisible(!Visible);});menu.Items.Add(visibilityItem);
         sizeItem=new ToolStripMenuItem("大小");menu.Items.Add(sizeItem);
@@ -352,7 +365,7 @@ class Pet : Form {
             try{StartupRegistration.SetEnabled(!StartupRegistration.IsEnabled);}
             catch(Exception e){MessageBox.Show("无法修改开机启动："+e.Message,WindowTitle,MessageBoxButtons.OK,MessageBoxIcon.Information);}
         });menu.Items.Add(startupItem);
-        menu.Items.Add("关于",null,delegate{MessageBox.Show("大肥鱼桌宠 v1.1.0\r\n\r\n拖动角色移动位置，右键角色或托盘图标打开菜单。\r\n双击托盘图标可以找回隐藏的角色。\r\n\r\n基于 ayangweb/BongoCat 素材制作。\r\n输入仅用于本地动画，不记录文本或控制系统鼠标。",WindowTitle,MessageBoxButtons.OK,MessageBoxIcon.Information);});
+        menu.Items.Add("关于",null,delegate{MessageBox.Show("大肥鱼桌宠 v1.1.1\r\n\r\n拖动角色移动位置，右键角色或托盘图标打开菜单。\r\n双击托盘图标可以找回隐藏的角色。\r\n\r\n基于 ayangweb/BongoCat 素材制作。\r\n输入仅用于本地动画，不记录文本或控制系统鼠标。",WindowTitle,MessageBoxButtons.OK,MessageBoxIcon.Information);});
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("退出",null,delegate{Close();});
         menu.Opening+=delegate{RefreshMenu();};
@@ -464,7 +477,7 @@ class Pet : Form {
         byte opacity=hoverHidden?(byte)0:(byte)Math.Round(settings.OpacityPercent*255/100.0);
         if(hoverHidden&&hasFrame&&renderedOpacity==0)return;
         Rectangle monitor=Screen.FromPoint(cursor).Bounds;
-        V desired=new V(235+((cursor.X-monitor.Left)/(double)monitor.Width-.5)*10,221+((cursor.Y-monitor.Top)/(double)monitor.Height-.5)*8);
+        V desired=MouseMotion.Target(cursor,monitor);
         mouse=V.Lerp(mouse,desired,1-Math.Exp(-dt/.045));
         string current=order.Count>0?held[order[order.Count-1]]:now-lastDown<.13?lastKey:null;
         V target=current!=null?scene.TargetForInput(current):scene.Rest;
@@ -731,33 +744,51 @@ static class Program {
                 if(maxElbowStep>5||maxHandTurn>12)throw new Exception("Discontinuous joint solution: "+maxElbowStep+" / "+maxHandTurn);
                 File.WriteAllText(Path.Combine(destination,"continuity.txt"),"55 keys, 3025 transitions, 181500 intermediate poses.\r\nMaximum elbow step: "+maxElbowStep+" px\r\nMaximum wrist orientation step: "+maxHandTurn+" degrees\r\n");
                 if(scene.Expressions.Length!=3)throw new Exception("The three supplied expressions are required");
-                foreach(string face in scene.Expressions)using(var b=scene.Render(new V(235,221),scene.Targets["KeyS"],new[]{"KeyS"},false,false,2,face))b.Save(Path.Combine(destination,"jointed-"+face+".png"));
-                using(var b=scene.Render(new V(235,221),scene.Rest,new string[0],false,false,2))b.Save(Path.Combine(destination,"jointed-idle.png"));
-                using(var b=scene.Render(new V(235,221),scene.Targets["KeyW"],new[]{"ControlLeft","KeyW"},false,false,2))b.Save(Path.Combine(destination,"jointed-compact-combo.png"));
-                foreach(string key in scene.Targets.Keys)using(var b=scene.Render(new V(235,221),scene.Targets[key],new[]{key},false,false,2))b.Save(Path.Combine(destination,"jointed-"+key+".png"));
+                foreach(string face in scene.Expressions)using(var b=scene.Render(MouseMotion.Center,scene.Targets["KeyS"],new[]{"KeyS"},false,false,2,face))b.Save(Path.Combine(destination,"jointed-"+face+".png"));
+                using(var b=scene.Render(MouseMotion.Center,scene.Rest,new string[0],false,false,2))b.Save(Path.Combine(destination,"jointed-idle.png"));
+                using(var b=scene.Render(MouseMotion.Center,scene.Targets["KeyW"],new[]{"ControlLeft","KeyW"},false,false,2))b.Save(Path.Combine(destination,"jointed-compact-combo.png"));
+                foreach(string key in scene.Targets.Keys)using(var b=scene.Render(MouseMotion.Center,scene.Targets[key],new[]{key},false,false,2))b.Save(Path.Combine(destination,"jointed-"+key+".png"));
                 for(int i=0;i<24;i++){
-                    double t=i*Math.PI*2/24;V m=new V(235+Math.Cos(t)*5,221+Math.Sin(t)*4);
+                    double t=i*Math.PI*2/24;V m=MouseMotion.Center+new V(Math.Cos(t)*MouseMotion.HalfWidth,Math.Sin(t)*MouseMotion.HalfHeight);
                     ArmPose p=Anatomy.Solve(scene.MouseShoulder,m+new V(-1,-4),32,31,false);
                     if((p.Tip-(m+new V(-1,-4))).Length>.01)throw new Exception("Unreachable mouse pose");
                     V reach=p.Wrist-p.Shoulder,elbow=p.Elbow-p.Shoulder;
                     if(reach.X*elbow.Y-reach.Y*elbow.X<=0||p.Elbow.X>=p.Shoulder.X-8)throw new Exception("Mouse elbow must open outward");
                     using(var b=scene.Render(m,scene.Rest,new string[0],false,false,2))b.Save(Path.Combine(destination,"jointed-motion-"+i.ToString("D2")+".png"));
                 }
+                // Verify actual screen mapping, including a monitor left of the
+                // primary display. No system input is generated by these checks.
+                foreach(Rectangle screen in new[]{new Rectangle(0,0,1920,1080),new Rectangle(-2560,-1440,2560,1440)}){
+                    V first=MouseMotion.Target(screen.Location,screen);
+                    V last=MouseMotion.Target(new Point(screen.Right-1,screen.Bottom-1),screen);
+                    if((first-(MouseMotion.Center-new V(MouseMotion.HalfWidth,MouseMotion.HalfHeight))).Length>.001
+                        ||(last-(MouseMotion.Center+new V(MouseMotion.HalfWidth,MouseMotion.HalfHeight))).Length>.001)throw new Exception("Mouse screen mapping lost its full movement range");
+                }
+                if((MouseMotion.Target(new Point(10,10),new Rectangle(10,10,1,1))-MouseMotion.Center).Length>.001)throw new Exception("Degenerate screen mapping is not centered");
                 double minAbduction=90,maxAbduction=0;
-                for(int x=230;x<=240;x++)for(int y=217;y<=225;y++){
-                    ArmPose p=Anatomy.Solve(scene.MouseShoulder,new V(x-1,y-4),32,31,false);
+                int mousePositions=0;
+                for(double dx=-MouseMotion.HalfWidth;dx<=MouseMotion.HalfWidth;dx+=.5)for(double dy=-MouseMotion.HalfHeight;dy<=MouseMotion.HalfHeight;dy+=.5){
+                    V tip=MouseMotion.Center+new V(dx-1,dy-4);
+                    ArmPose p=Anatomy.Solve(scene.MouseShoulder,tip,32,31,false);
+                    mousePositions++;
                     V arm=p.Elbow-p.Shoulder,reach=p.Wrist-p.Shoulder;
                     double abduction=Math.Atan2(Math.Abs(arm.X),arm.Y)*180/Math.PI;
                     minAbduction=Math.Min(minAbduction,abduction);maxAbduction=Math.Max(maxAbduction,abduction);
                     if(abduction>35||arm.X>=0||reach.X*arm.Y-reach.Y*arm.X<=0)throw new Exception("Mouse shoulder exceeds its relaxed outward range");
-                    if((p.Tip-new V(x-1,y-4)).Length>.01)throw new Exception("Mouse corner unreachable");
+                    if((p.Tip-tip).Length>.01)throw new Exception("Mouse corner unreachable");
+                    V forearm=(p.Wrist-p.Elbow).Unit;
+                    if(forearm.X*p.Direction.X+forearm.Y*p.Direction.Y<.99999)throw new Exception("Mouse wrist lost alignment");
                 }
-                File.WriteAllText(Path.Combine(destination,"mouse-shoulder-check.txt"),"99 mouse positions including all corners. Projected upper-arm angle from downward: "+minAbduction+" to "+maxAbduction+" degrees.\r\n");
+                File.WriteAllText(Path.Combine(destination,"mouse-shoulder-check.txt"),mousePositions+" mouse positions including all corners. Travel: "+(MouseMotion.HalfWidth*2)+" x "+(MouseMotion.HalfHeight*2)+" scene pixels. Projected upper-arm angle from downward: "+minAbduction+" to "+maxAbduction+" degrees.\r\n");
+                for(int horizontal=-1;horizontal<=1;horizontal+=2)for(int vertical=-1;vertical<=1;vertical+=2){
+                    V m=MouseMotion.Center+new V(horizontal*MouseMotion.HalfWidth,vertical*MouseMotion.HalfHeight);
+                    using(var b=scene.Render(m,scene.Rest,new string[0],false,false,2))b.Save(Path.Combine(destination,"mouse-corner-"+horizontal+"-"+vertical+".png"));
+                }
                 string[] sequence={"KeyA","Space","Return","KeyW","ShiftLeft","KeyM"};
                 for(int i=0;i<72;i++){
                     int part=i/12;double t=(i%12)/12.0;t=t*t*(3-2*t);
                     V key=V.Lerp(scene.Targets[sequence[part]],scene.Targets[sequence[(part+1)%sequence.Length]],t);
-                    V m=new V(235+Math.Cos(i*Math.PI/36)*5,221+Math.Sin(i*Math.PI/36)*4);
+                    V m=MouseMotion.Center+new V(Math.Cos(i*Math.PI/36)*MouseMotion.HalfWidth,Math.Sin(i*Math.PI/36)*MouseMotion.HalfHeight);
                     string face=i%24<16?scene.Expressions[(i/24)%scene.Expressions.Length]:null;
                     using(var b=scene.Render(m,key,new[]{sequence[part]},false,false,2,face))b.Save(Path.Combine(destination,"jointed-demo-"+i.ToString("D2")+".png"));
                 }

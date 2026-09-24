@@ -1,6 +1,6 @@
 ﻿; Compile with native-pet/package.ps1 and Inno Setup 6.
 #ifndef AppVersion
-  #define AppVersion "1.1.0"
+  #define AppVersion "1.1.1"
 #endif
 #ifndef BuildDir
   #define BuildDir SourcePath + "..\output\Dafeiyu-Jointed"

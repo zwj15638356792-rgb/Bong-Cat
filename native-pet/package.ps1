@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
-$version = '1.1.0'
+$version = '1.1.1'
 
 function Resolve-ProjectPath([string]$Path) {
     if ([System.IO.Path]::IsPathRooted($Path)) {

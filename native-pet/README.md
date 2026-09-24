@@ -1,10 +1,11 @@
 # 大肥鱼 · 关节动作版
 
-安装版运行 `Dafeiyu-Setup-1.1.0.exe`，然后从开始菜单打开「大肥鱼桌宠」。安装于当前用户目录，可从 Windows「已安装的应用」中卸载，无需管理员权限。
+安装版运行 `Dafeiyu-Setup-1.1.1.exe`，然后从开始菜单打开「大肥鱼桌宠」。安装于当前用户目录，可从 Windows「已安装的应用」中卸载，无需管理员权限。
 
 便携版双击 `Dafeiyu.exe` 即可启动。素材已经内嵌，不需要外置 `assets` 文件夹。适用于 Windows 10/11。
 
 - 在其他软件中移动鼠标、点击左右键或输入键盘，桌宠同步响应。
+- 桌宠中鼠标和手臂的跟随幅度增至原来的 2 倍；此调整只影响桌宠动画，不改变 Windows 光标速度。
 - 拖动角色移动窗口；右键角色或系统托盘图标打开菜单。
 - 菜单包含显示/隐藏、大小、总在最前、锁定位置、重置位置、开机启动和退出。
 - 双击托盘图标或再次启动应用可找回隐藏的角色，应用只运行一个实例。
@@ -19,7 +20,7 @@
 
 ## 实现
 
-这是独立 Windows 桌面程序，不是官方 BongoCat 二进制文件或可导入的 Live2D 模型。肩膀固定，上臂、前臂和手部使用固定空间长度，在浅三维空间中计算关节。手腕顺着前臂，袖口固定在腕关节，手部按透视等比例缩短。鼠标侧肘部适度向外，大臂在移动范围内的画面外展角度约 25–34 度。
+这是独立 Windows 桌面程序，不是官方 BongoCat 二进制文件或可导入的 Live2D 模型。肩膀固定，上臂、前臂和手部使用固定空间长度，在浅三维空间中计算关节。手腕顺着前臂，袖口固定在腕关节，手部按透视等比例缩短。鼠标侧肘部适度向外，手掌随鼠标连续移动。
 
 键盘移近角色，并缩短键盘侧手臂，减少伸手过远；键帽与手部落点共用同一透视变换。
 
@@ -40,6 +41,6 @@ powershell -ExecutionPolicy Bypass -File native-pet/build.ps1
 
 程序源码为 `native-pet/JointedPet.cs`，素材构建入口为 `scripts/build-jointed-assets.py`。默认程序目录为 `output/Dafeiyu-Jointed`，中间素材与检查结果为 `output/jointed-checks`。
 
-制作安装包需要 Inno Setup 6，在仓库根目录执行 `powershell -ExecutionPolicy Bypass -File native-pet/package.ps1`。输出为 `output/installer/Dafeiyu-Setup-1.1.0.exe`；打包脚本不会安装程序或开启自启动。
+制作安装包需要 Inno Setup 6，在仓库根目录执行 `powershell -ExecutionPolicy Bypass -File native-pet/package.ps1`。输出为 `output/installer/Dafeiyu-Setup-1.1.1.exe`；打包脚本不会安装程序或开启自启动。
 
 BongoCat 素材来源与许可证见仓库根目录 `UPSTREAM_REVISION.txt`、`LICENSE`；随程序分发时许可证为 `LICENSE-BongoCat.txt`。角色图的使用与再分发范围由权利人授权决定。

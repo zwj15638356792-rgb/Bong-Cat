@@ -6,11 +6,12 @@
 
 ## 运行
 
-推荐从 [Releases](https://github.com/zwj15638356792-rgb/Bong-Cat/releases/latest) 下载 `Dafeiyu-Setup-1.1.0.exe`，安装后从开始菜单打开「大肥鱼桌宠」。安装只作用于当前用户，无需管理员权限，也可以在 Windows「已安装的应用」中卸载。
+推荐从 [Releases](https://github.com/zwj15638356792-rgb/Bong-Cat/releases/latest) 下载 `Dafeiyu-Setup-1.1.1.exe`，安装后从开始菜单打开「大肥鱼桌宠」。安装只作用于当前用户，无需管理员权限，也可以在 Windows「已安装的应用」中卸载。
 
 便携版直接运行 `Dafeiyu.exe`，角色和外设素材已内嵌，不需要外置 `assets` 文件夹。
 
 - 移动鼠标、点击左右键和输入键盘，桌宠同步响应。
+- 桌宠中鼠标和手臂的跟随幅度增至原来的 2 倍；此调整只影响桌宠动画，不改变 Windows 光标速度。
 - 拖动角色移动窗口；右键角色或右下角托盘图标打开菜单。
 - 托盘支持显示/隐藏、大小、总在最前、锁定位置、重置位置、开机启动和退出。双击托盘图标可找回隐藏的角色；再次启动应用也会显示已有实例。
 - 托盘的「透明度」提供 25%、50%、75%、100% 四档，100% 为完全不透明。
@@ -49,7 +50,7 @@ powershell -ExecutionPolicy Bypass -File native-pet/build.ps1 -OutputDirectory o
 powershell -ExecutionPolicy Bypass -File native-pet/package.ps1
 ```
 
-安装程序输出到 `output/installer/Dafeiyu-Setup-1.1.0.exe`。构建脚本不会安装程序，也不会开启自启动。用户设置存放在 `%LOCALAPPDATA%/Dafeiyu/settings.xml`。
+安装程序输出到 `output/installer/Dafeiyu-Setup-1.1.1.exe`。构建脚本不会安装程序，也不会开启自启动。用户设置存放在 `%LOCALAPPDATA%/Dafeiyu/settings.xml`。
 
 构建包含 Raw Input 数据包离线解析、55 种既有输入映射、通用按键反馈、12 个可见键帽及其别名、3025 组目标转换、鼠标移动范围和表情时序的检查。这些离线检查不会注册输入设备或生成真实输入。GitHub Actions 的 Windows 构建会执行相同流程，并提供独立程序和安装包。
 
