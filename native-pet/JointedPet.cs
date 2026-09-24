@@ -1,5 +1,5 @@
-// Character-specific desktop renderer. Peripheral artwork is from BongoCat.
-// .NET Framework / Win32 only: no installation, WebView or background service.
+﻿// Character-specific desktop renderer. Peripheral artwork is from BongoCat.
+// .NET Framework / Win32 desktop application with embedded character artwork.
 using System;
 using System.IO;
 using System.Collections.Generic;
@@ -9,6 +9,7 @@ using System.Drawing.Imaging;
 using System.Globalization;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Reflection;
 using System.Windows.Forms;
 
 struct V {
@@ -116,8 +117,16 @@ class Scene : IDisposable {
         return KeyboardPoint(62,35);
     }
     public V TargetForInput(string key){V target;return Targets.TryGetValue(key,out target)?target:TargetFor(key);}
-    public Scene(string folder){
-        foreach(string f in Directory.GetFiles(folder,"*.png"))images[Path.GetFileNameWithoutExtension(f)]=new Bitmap(f);
+    public Scene(){
+        Assembly assembly=Assembly.GetExecutingAssembly();
+        const string prefix="Dafeiyu.Assets.";
+        foreach(string resource in assembly.GetManifestResourceNames()){
+            if(!resource.StartsWith(prefix,StringComparison.Ordinal)||!resource.EndsWith(".png",StringComparison.Ordinal))continue;
+            using(Stream stream=assembly.GetManifestResourceStream(resource))
+            using(var source=new Bitmap(stream))images[Path.GetFileNameWithoutExtension(resource.Substring(prefix.Length))]=new Bitmap(source);
+        }
+        foreach(string name in new[]{"body","front-hair","cuff-hand","fabric","pad","mouse","mouse-left","mouse-right","face-blink","face-happy","face-surprised"})
+            if(!images.ContainsKey(name))throw new InvalidDataException("Missing embedded artwork: "+name);
         for(char c='A';c<='Z';c++){string key="Key"+c;Targets[key]=TargetFor(key);}
         for(int i=0;i<10;i++){string key="Num"+i;Targets[key]=TargetFor(key);}
         foreach(string key in new[]{"Alt","AltGr","BackQuote","Backspace","CapsLock","Control","ControlLeft","ControlRight","Delete","Escape","Fn","Meta","Return","Shift","ShiftLeft","ShiftRight","Slash","Space","Tab"})Targets[key]=TargetFor(key);
@@ -261,7 +270,11 @@ sealed class TypingExpression {
 }
 
 class Pet : Form {
+    public const string WindowTitle="大肥鱼桌宠";
+    public const int ShowPetMessage=0x8000+73;
     readonly Scene scene;
+    readonly AppSettings settings;
+    readonly string settingsPath;
     readonly Timer timer=new Timer{Interval=16};
     readonly Stopwatch clock=Stopwatch.StartNew();
     readonly Dictionary<int,string> held=new Dictionary<int,string>();
@@ -277,42 +290,120 @@ class Pet : Form {
     bool hasFrame,renderedLeft,renderedRight;
     string renderedKeys,renderedExpression;
     double renderedScale;
+    byte renderedOpacity;
+    bool hoverHidden;
     Point renderedLocation;
     double sizeScale=1.45;
     bool dragging;
     Point dragStart,windowStart;
     readonly ContextMenuStrip menu=new ContextMenuStrip();
-    public Pet(Scene model){
-        scene=model;hand=scene.Rest;expressions=new TypingExpression(scene.Expressions);Text="大肥鱼 · 关节动作版";
-        FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=true;TopMost=true;
+    readonly NotifyIcon tray=new NotifyIcon();
+    readonly Icon appIcon;
+    ToolStripMenuItem visibilityItem,topMostItem,lockedItem,startupItem,sizeItem,opacityItem,hoverHideItem;
+    bool closing,disposed;
+    public Pet(Scene model,string settingsPath=null){
+        this.settingsPath=settingsPath;
+        scene=model;hand=scene.Rest;expressions=new TypingExpression(scene.Expressions);Text=WindowTitle;
+        settings=AppSettings.Load(settingsPath);sizeScale=settings.SizeScale;
+        FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=settings.TopMost;
         StartPosition=FormStartPosition.Manual;
         Rectangle screen=Screen.PrimaryScreen.WorkingArea;
         Location=new Point(screen.Right-490,screen.Bottom-450);
-        ClientSize=new Size(460,430);
-        menu.Items.Add("放大",null,delegate{sizeScale=Math.Min(2.4,sizeScale+.15);});
-        menu.Items.Add("缩小",null,delegate{sizeScale=Math.Max(.7,sizeScale-.15);});
-        menu.Items.Add("退出",null,delegate{Close();});
+        if(settings.HasLocation)Location=new Point(settings.X,settings.Y);
+        ClientSize=new Size((int)(300*sizeScale),(int)(290*sizeScale));
+        KeepOnScreen();
+        appIcon=Icon.ExtractAssociatedIcon(Application.ExecutablePath);Icon=appIcon;
+        BuildMenu();
+        tray.Icon=appIcon;tray.Text="大肥鱼桌宠";tray.ContextMenuStrip=menu;
+        tray.DoubleClick+=delegate{SetPetVisible(true);};
         MouseDown+=delegate(object sender,MouseEventArgs e){
             if(e.Button==MouseButtons.Right){menu.Show(Cursor.Position);return;}
-            if(e.Button==MouseButtons.Left){dragging=true;dragStart=Cursor.Position;windowStart=Location;Capture=true;}
+            if(e.Button==MouseButtons.Left&&!settings.Locked){dragging=true;dragStart=Cursor.Position;windowStart=Location;Capture=true;}
         };
         MouseMove+=delegate{if(dragging){Point p=Cursor.Position;Location=new Point(windowStart.X+p.X-dragStart.X,windowStart.Y+p.Y-dragStart.Y);}};
-        MouseUp+=delegate{dragging=false;Capture=false;};
-        Shown+=delegate{
-            Native.RegisterInputSink(Handle);rawInputRegistered=true;
-            lastTick=clock.Elapsed.TotalSeconds;timer.Start();
-        };
+        MouseUp+=delegate{if(dragging){dragging=false;Capture=false;SaveSettings();}};
+        Shown+=delegate{tray.Visible=true;StartTracking();};
         timer.Tick+=delegate{Tick();};
-        FormClosed+=delegate{timer.Stop();if(rawInputRegistered){Native.RemoveInputSink();rawInputRegistered=false;}scene.Dispose();};
+        FormClosing+=delegate{closing=true;SaveSettings();tray.Visible=false;StopTracking();};
+    }
+    void BuildMenu(){
+        menu.Items.Add(new ToolStripMenuItem("大肥鱼桌宠 v1.1.0"){Enabled=false});
+        menu.Items.Add(new ToolStripSeparator());
+        visibilityItem=new ToolStripMenuItem("隐藏桌宠",null,delegate{SetPetVisible(!Visible);});menu.Items.Add(visibilityItem);
+        sizeItem=new ToolStripMenuItem("大小");menu.Items.Add(sizeItem);
+        foreach(int percentage in new[]{50,75,100,125,150}){
+            int value=percentage;
+            var item=new ToolStripMenuItem(value+"%",null,delegate{sizeScale=1.45*value/100;ClientSize=new Size((int)(300*sizeScale),(int)(290*sizeScale));KeepOnScreen();hasFrame=false;SaveSettings();});
+            item.Tag=value;sizeItem.DropDownItems.Add(item);
+        }
+        opacityItem=new ToolStripMenuItem("透明度");menu.Items.Add(opacityItem);
+        foreach(int percentage in new[]{25,50,75,100}){
+            int value=percentage;
+            string label=value+"%"+(value==100?"（不透明）":value==25?"（更透明）":"");
+            var item=new ToolStripMenuItem(label,null,delegate{settings.OpacityPercent=value;hasFrame=false;SaveSettings();});
+            item.Tag=value;opacityItem.DropDownItems.Add(item);
+        }
+        hoverHideItem=new ToolStripMenuItem("鼠标悬停时隐藏",null,delegate{settings.HideOnHover=!settings.HideOnHover;UpdateHover(Cursor.Position);hasFrame=false;SaveSettings();});menu.Items.Add(hoverHideItem);
+        topMostItem=new ToolStripMenuItem("总在最前",null,delegate{TopMost=!TopMost;SaveSettings();});menu.Items.Add(topMostItem);
+        lockedItem=new ToolStripMenuItem("锁定位置",null,delegate{settings.Locked=!settings.Locked;SaveSettings();});menu.Items.Add(lockedItem);
+        menu.Items.Add("重置位置",null,delegate{Rectangle area=Screen.PrimaryScreen.WorkingArea;Location=new Point(area.Right-ClientSize.Width-20,area.Bottom-ClientSize.Height-20);KeepOnScreen();SetPetVisible(true);SaveSettings();});
+        menu.Items.Add(new ToolStripSeparator());
+        startupItem=new ToolStripMenuItem("开机启动",null,delegate{
+            try{StartupRegistration.SetEnabled(!StartupRegistration.IsEnabled);}
+            catch(Exception e){MessageBox.Show("无法修改开机启动："+e.Message,WindowTitle,MessageBoxButtons.OK,MessageBoxIcon.Information);}
+        });menu.Items.Add(startupItem);
+        menu.Items.Add("关于",null,delegate{MessageBox.Show("大肥鱼桌宠 v1.1.0\r\n\r\n拖动角色移动位置，右键角色或托盘图标打开菜单。\r\n双击托盘图标可以找回隐藏的角色。\r\n\r\n基于 ayangweb/BongoCat 素材制作。\r\n输入仅用于本地动画，不记录文本或控制系统鼠标。",WindowTitle,MessageBoxButtons.OK,MessageBoxIcon.Information);});
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("退出",null,delegate{Close();});
+        menu.Opening+=delegate{RefreshMenu();};
+    }
+    void RefreshMenu(){
+        visibilityItem.Text=Visible?"隐藏桌宠":"显示桌宠";
+        topMostItem.Checked=TopMost;lockedItem.Checked=settings.Locked;hoverHideItem.Checked=settings.HideOnHover;
+        foreach(ToolStripMenuItem item in opacityItem.DropDownItems)item.Checked=(int)item.Tag==settings.OpacityPercent;
+        try{startupItem.Checked=StartupRegistration.IsEnabled;}catch{startupItem.Checked=false;}
+        foreach(ToolStripMenuItem item in sizeItem.DropDownItems)item.Checked=Math.Abs(sizeScale-1.45*(int)item.Tag/100)<.001;
+    }
+    void UpdateHover(Point cursor){
+        // Test the same screen rectangle even while invisible, so making the
+        // pet transparent cannot generate a false mouse-leave and flicker.
+        bool hide=settings.HideOnHover&&Visible&&!dragging&&!menu.Visible
+            &&new Rectangle(Location,ClientSize).Contains(cursor);
+        if(hide==hoverHidden)return;
+        hoverHidden=hide;hasFrame=false;
+        if(IsHandleCreated)Native.SetMousePassthrough(Handle,hide);
+    }
+    void KeepOnScreen(){
+        Rectangle area=Screen.FromRectangle(new Rectangle(Location,ClientSize)).WorkingArea;
+        Location=new Point(Math.Max(area.Left,Math.Min(Location.X,area.Right-ClientSize.Width)),Math.Max(area.Top,Math.Min(Location.Y,area.Bottom-ClientSize.Height)));
+    }
+    void SaveSettings(){
+        settings.SizeScale=sizeScale;settings.TopMost=TopMost;settings.HasLocation=true;settings.X=Location.X;settings.Y=Location.Y;
+        try{settings.Save(settingsPath);}catch(Exception e){Program.LogError(e);}
+    }
+    void StartTracking(){
+        if(!rawInputRegistered){Native.RegisterInputSink(Handle);rawInputRegistered=true;}
+        hasFrame=false;lastTick=clock.Elapsed.TotalSeconds;timer.Start();
+    }
+    void StopTracking(){
+        timer.Stop();if(rawInputRegistered){Native.RemoveInputSink();rawInputRegistered=false;}
+        held.Clear();order.Clear();lastKey=null;lastDown=-10;leftHeld=false;rightHeld=false;leftDown=-10;rightDown=-10;
+    }
+    void SetPetVisible(bool show){
+        if(closing)return;
+        if(show){Show();KeepOnScreen();UpdateHover(Cursor.Position);StartTracking();}
+        else{dragging=false;Capture=false;StopTracking();Hide();UpdateHover(Cursor.Position);}
+        RefreshMenu();
     }
     protected override bool ShowWithoutActivation{get{return true;}}
     protected override void Dispose(bool disposing){
-        if(disposing&&rawInputRegistered){Native.RemoveInputSink();rawInputRegistered=false;}
+        if(disposing&&!disposed){disposed=true;StopTracking();timer.Dispose();tray.Visible=false;tray.Dispose();menu.Dispose();scene.Dispose();if(appIcon!=null)appIcon.Dispose();}
         base.Dispose(disposing);
     }
     protected override CreateParams CreateParams{get{var p=base.CreateParams;p.ExStyle|=0x80000;return p;}}
     protected override void WndProc(ref Message m){
         if(m.Msg==0x21){m.Result=new IntPtr(3);return;}
+        if(m.Msg==ShowPetMessage){SetPetVisible(true);m.Result=IntPtr.Zero;return;}
         if(m.Msg==0xff&&rawInputRegistered){
             Native.RawInputEvent input;
             if(Native.TryReadInput(m.LParam,out input)){
@@ -369,7 +460,10 @@ class Pet : Form {
     }
     void Tick(){
         double now=clock.Elapsed.TotalSeconds,dt=Math.Min(.1,now-lastTick);lastTick=now;
-        Point cursor=Cursor.Position;Rectangle monitor=Screen.FromPoint(cursor).Bounds;
+        Point cursor=Cursor.Position;UpdateHover(cursor);
+        byte opacity=hoverHidden?(byte)0:(byte)Math.Round(settings.OpacityPercent*255/100.0);
+        if(hoverHidden&&hasFrame&&renderedOpacity==0)return;
+        Rectangle monitor=Screen.FromPoint(cursor).Bounds;
         V desired=new V(235+((cursor.X-monitor.Left)/(double)monitor.Width-.5)*10,221+((cursor.Y-monitor.Top)/(double)monitor.Height-.5)*8);
         mouse=V.Lerp(mouse,desired,1-Math.Exp(-dt/.045));
         string current=order.Count>0?held[order[order.Count-1]]:now-lastDown<.13?lastKey:null;
@@ -383,17 +477,17 @@ class Pet : Form {
         // animation work out of idle ticks also leaves the input queue responsive.
         if(hasFrame&&(mouse-renderedMouse).Length<.015&&(hand-renderedHand).Length<.015
             &&left==renderedLeft&&right==renderedRight&&keyState==renderedKeys
-            &&face==renderedExpression&&sizeScale==renderedScale&&Location==renderedLocation)return;
+            &&face==renderedExpression&&sizeScale==renderedScale&&Location==renderedLocation&&opacity==renderedOpacity)return;
         int renderScale=Math.Max(2,(int)Math.Ceiling(sizeScale));
         using(Bitmap full=scene.Render(mouse,hand,lit,left,right,renderScale,face)){
             // Crop unused transparent margins; the whole window remains per-pixel transparent.
             using(Bitmap frame=new Bitmap((int)(300*sizeScale),(int)(290*sizeScale),PixelFormat.Format32bppArgb)){
                 using(Graphics g=Graphics.FromImage(frame)){g.InterpolationMode=InterpolationMode.HighQualityBicubic;g.PixelOffsetMode=PixelOffsetMode.HighQuality;g.DrawImage(full,new Rectangle(0,0,frame.Width,frame.Height),new Rectangle(140*renderScale,0,300*renderScale,290*renderScale),GraphicsUnit.Pixel);}
-                Native.Present(Handle,frame,Location);
+                Native.Present(Handle,frame,Location,opacity);
             }
         }
         hasFrame=true;renderedMouse=mouse;renderedHand=hand;renderedLeft=left;renderedRight=right;
-        renderedKeys=keyState;renderedExpression=face;renderedScale=sizeScale;renderedLocation=Location;
+        renderedKeys=keyState;renderedExpression=face;renderedScale=sizeScale;renderedLocation=Location;renderedOpacity=opacity;
     }
 }
 
@@ -414,6 +508,18 @@ static class Native {
     [DllImport("user32.dll",SetLastError=true)]static extern bool RegisterRawInputDevices([In]RawInputDevice[] devices,uint count,uint size);
     [DllImport("user32.dll",SetLastError=true)]static extern uint GetRawInputData(IntPtr input,uint command,[Out]byte[] data,ref uint size,uint headerSize);
     [DllImport("user32.dll")]public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll",EntryPoint="GetWindowLongW")]static extern int GetWindowStyle(IntPtr window,int index);
+    [DllImport("user32.dll",EntryPoint="SetWindowLongW")]static extern int SetWindowStyle(IntPtr window,int index,int value);
+    public static void SetMousePassthrough(IntPtr window,bool enabled){
+        int style=GetWindowStyle(window,-20);
+        SetWindowStyle(window,-20,enabled?style|0x20:style&~0x20);
+    }
+    [DllImport("user32.dll",CharSet=CharSet.Unicode)]static extern IntPtr FindWindow(string className,string title);
+    [DllImport("user32.dll")]static extern bool PostMessage(IntPtr window,int message,IntPtr w,IntPtr l);
+    public static void ShowExistingPet(){
+        IntPtr window=FindWindow(null,Pet.WindowTitle);
+        if(window!=IntPtr.Zero)PostMessage(window,Pet.ShowPetMessage,IntPtr.Zero,IntPtr.Zero);
+    }
     [DllImport("user32.dll")]static extern IntPtr GetDC(IntPtr window);
     [DllImport("user32.dll")]static extern int ReleaseDC(IntPtr window,IntPtr dc);
     [DllImport("gdi32.dll")]static extern IntPtr CreateCompatibleDC(IntPtr dc);
@@ -466,20 +572,30 @@ static class Native {
         }
         return false;
     }
-    public static void Present(IntPtr window,Bitmap bitmap,Point location){
+    public static void Present(IntPtr window,Bitmap bitmap,Point location,byte opacity=255){
         IntPtr screen=GetDC(IntPtr.Zero),memory=CreateCompatibleDC(screen),handle=bitmap.GetHbitmap(Color.FromArgb(0));
         IntPtr old=SelectObject(memory,handle);
         try{
             POINT dst=new POINT(location.X,location.Y),source=new POINT(0,0);SIZE size=new SIZE(bitmap.Width,bitmap.Height);
-            BLEND blend=new BLEND{op=0,flags=0,alpha=255,format=1};
+            BLEND blend=new BLEND{op=0,flags=0,alpha=opacity,format=1};
             if(!UpdateLayeredWindow(window,screen,ref dst,ref size,memory,ref source,0,ref blend,2))throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
         }finally{SelectObject(memory,old);DeleteObject(handle);DeleteDC(memory);ReleaseDC(IntPtr.Zero,screen);}
     }
 }
 
 static class Program {
+    public static void LogError(Exception e){
+        try{
+            string folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Dafeiyu");
+            Directory.CreateDirectory(folder);File.WriteAllText(Path.Combine(folder,"error.log"),e.ToString());
+        }catch{}
+    }
     [STAThread]static void Main(string[] args){
-        try{Run(args);}catch(Exception e){File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"error.log"),e.GetType().Name+": "+e.Message);Environment.ExitCode=1;}
+        try{Run(args);}catch(Exception e){
+            if(args.Length>0&&args[0]=="--render")File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"error.log"),e.ToString());
+            else{LogError(e);MessageBox.Show("桌宠启动失败："+e.Message,Pet.WindowTitle,MessageBoxButtons.OK,MessageBoxIcon.Error);}
+            Environment.ExitCode=1;
+        }
     }
     static void ValidateRawInputPackets(string destination){
         foreach(int pointerSize in new[]{4,8}){
@@ -523,7 +639,7 @@ static class Program {
     static void Run(string[] args){
         string root=AppDomain.CurrentDomain.BaseDirectory;
         if(args.Length>0&&args[0]=="--render"){
-            using(var scene=new Scene(Path.Combine(root,"assets"))){
+            using(var scene=new Scene()){
                 string destination=args.Length>1?args[1]:root;Directory.CreateDirectory(destination);
                 ValidateRawInputPackets(destination);
                 var lines=new List<string>();
@@ -651,10 +767,10 @@ static class Program {
         }
         bool created;
         using(var mutex=new System.Threading.Mutex(true,"Local\\DafeiyuJointedPet",out created)){
-            if(!created)return;
+            if(!created){Native.ShowExistingPet();return;}
             Native.SetProcessDPIAware();Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
-            Application.ThreadException+=delegate(object sender,System.Threading.ThreadExceptionEventArgs e){File.WriteAllText(Path.Combine(root,"error.log"),e.Exception.ToString());Application.Exit();};
-            var app=new Pet(new Scene(Path.Combine(root,"assets")));
+            Application.ThreadException+=delegate(object sender,System.Threading.ThreadExceptionEventArgs e){LogError(e.Exception);MessageBox.Show("桌宠遇到错误："+e.Exception.Message,Pet.WindowTitle,MessageBoxButtons.OK,MessageBoxIcon.Error);Application.Exit();};
+            var app=new Pet(new Scene());
             Application.Run(app);
         }
     }

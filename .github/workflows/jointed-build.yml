@@ -25,8 +25,25 @@ jobs:
       - name: Build and validate
         shell: powershell
         run: ./native-pet/build.ps1
+      - name: Install verified installer compiler
+        shell: powershell
+        run: |
+          $setup = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.3.exe'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe' -OutFile $setup
+          if ((Get-AuthenticodeSignature $setup).Status -ne 'Valid') { throw 'Installer compiler signature check failed' }
+          $compilerDir = Join-Path $env:RUNNER_TEMP 'inno'
+          $process = Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/NOICONS',('/DIR="' + $compilerDir + '"') -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Installer compiler setup failed' }
+      - name: Package Windows installer
+        shell: powershell
+        run: ./native-pet/package.ps1 -SkipBuild -InnoCompiler "$env:RUNNER_TEMP/inno/ISCC.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: Dafeiyu-Jointed-Windows
           path: output/Dafeiyu-Jointed/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dafeiyu-Windows-Installer
+          path: output/installer/Dafeiyu-Setup-*.exe
           if-no-files-found: error
